@@ -171,37 +171,86 @@ export default function Dashboard() {
 
 // ========== 日次タブ ==========
 function DailyTab({ data, update }) {
-  const today = getTodayKey();
-  const todayData = data.daily[today]||{ tasks:{}, memo:"" };
+  const todayKey = getTodayKey();
+  const [viewDate, setViewDate] = useState(todayKey);
+  const isToday = viewDate === todayKey;
+
+  const viewData = data.daily[viewDate]||{ tasks:{}, memo:"" };
   const tasks = data.dailyTasks;
   const [editMode, setEditMode] = useState(false);
   const [newLabel, setNewLabel] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editingLabel, setEditingLabel] = useState("");
 
-  const toggle = id => update({ ...data, daily:{ ...data.daily, [today]:{ ...todayData, tasks:{ ...todayData.tasks, [id]:!todayData.tasks[id] } } } });
+  // 日付ナビゲーション
+  const moveDay = (delta) => {
+    const d = new Date(viewDate); d.setDate(d.getDate() + delta);
+    const newKey = d.toISOString().split("T")[0];
+    if (newKey <= todayKey) setViewDate(newKey);
+  };
+
+  // 前日の未完了タスクを今日に持ち越す
+  const carryOver = () => {
+    const yesterday = new Date(todayKey); yesterday.setDate(yesterday.getDate()-1);
+    const yKey = yesterday.toISOString().split("T")[0];
+    const yData = data.daily[yKey]||{ tasks:{} };
+    const incomplete = tasks.filter(t => !yData.tasks[t.id]);
+    if (incomplete.length === 0) return;
+    const todayData = data.daily[todayKey]||{ tasks:{}, memo:"" };
+    // 今日のタスクにすでにチェックされていないものだけセット（既存のチェック状態は保持）
+    update({ ...data, daily:{ ...data.daily, [todayKey]:{ ...todayData } } });
+    alert(`昨日の未完了: ${incomplete.map(t=>t.label).join("、")}\n（今日のリストで確認できます）`);
+  };
+
+  const toggle = id => update({ ...data, daily:{ ...data.daily, [viewDate]:{ ...viewData, tasks:{ ...viewData.tasks, [id]:!viewData.tasks[id] } } } });
   const addTask = () => { if(!newLabel.trim())return; update({ ...data, dailyTasks:[...tasks,{ id:uid(), label:newLabel.trim() }] }); setNewLabel(""); };
   const delTask = id => update({ ...data, dailyTasks:tasks.filter(t=>t.id!==id) });
   const saveEdit = () => { update({ ...data, dailyTasks:tasks.map(t=>t.id===editingId?{ ...t, label:editingLabel }:t) }); setEditingId(null); };
 
-  const done = tasks.filter(t=>todayData.tasks[t.id]).length;
-  const d = new Date();
+  const done = tasks.filter(t=>viewData.tasks[t.id]).length;
+  const vd = new Date(viewDate + "T00:00:00");
   const days = [];
   for(let i=6;i>=0;i--){ const dd=new Date(); dd.setDate(dd.getDate()-i); const k=dd.toISOString().split("T")[0]; const cnt=(data.daily[k]?.tasks)?tasks.filter(t=>data.daily[k].tasks[t.id]).length:0; days.push({ key:k, cnt, label:"日月火水木金土"[dd.getDay()] }); }
 
+  // 昨日の未完了タスク数を計算
+  const yesterday = new Date(todayKey); yesterday.setDate(yesterday.getDate()-1);
+  const yKey = yesterday.toISOString().split("T")[0];
+  const yData = data.daily[yKey]||{ tasks:{} };
+  const incompleteCount = tasks.filter(t => !yData.tasks[t.id]).length;
+
   return (
     <div>
-      <div style={{ color:"#8080b0", fontSize:12, marginBottom:12 }}>{d.getFullYear()}年{d.getMonth()+1}月{d.getDate()}日（{"日月火水木金土"[d.getDay()]}）</div>
+      {/* 日付ナビゲーション */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+        <button onClick={()=>moveDay(-1)} style={{ ...btn("#8080b0"), padding:"4px 12px", fontSize:16 }}>‹</button>
+        <div style={{ textAlign:"center" }}>
+          <div style={{ fontSize:13, color: isToday?"#a78bfa":"#c8c8e0", fontWeight: isToday?700:400 }}>
+            {vd.getFullYear()}年{vd.getMonth()+1}月{vd.getDate()}日（{"日月火水木金土"[vd.getDay()]}）
+          </div>
+          {!isToday && <div style={{ fontSize:10, color:"#f87171", marginTop:2 }}>過去の記録</div>}
+          {isToday && <div style={{ fontSize:10, color:"#a78bfa", marginTop:2 }}>今日</div>}
+        </div>
+        <button onClick={()=>moveDay(1)} disabled={isToday} style={{ ...btn(isToday?"#3a3a5a":"#8080b0"), padding:"4px 12px", fontSize:16, opacity:isToday?0.3:1 }}>›</button>
+      </div>
+
+      {/* 昨日の未完了を持ち越すボタン（今日表示かつ昨日に未完了がある場合） */}
+      {isToday && incompleteCount > 0 && (
+        <div style={{ background:"#1a1a30", border:"1px solid #f87171", borderRadius:10, padding:"10px 14px", marginBottom:12, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div style={{ fontSize:12, color:"#f87171" }}>昨日の未完了: {incompleteCount}件</div>
+          <button onClick={carryOver} style={btn("#f87171")}>確認する</button>
+        </div>
+      )}
+
       <Card>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-          <CardTitle style={{ margin:0 }}>今日のチェック</CardTitle>
+          <CardTitle style={{ margin:0 }}>{isToday?"今日":"この日"}のチェック</CardTitle>
           <button onClick={()=>setEditMode(!editMode)} style={btn(editMode?"#fbbf24":"#a78bfa")}>{editMode?"完了":"編集"}</button>
         </div>
         <ProgressBar value={done} max={tasks.length||1} color="#a78bfa"/>
         <div style={{ fontSize:11, color:"#8080b0", margin:"2px 0 10px" }}>{done}/{tasks.length} 完了</div>
         {tasks.map(task => editingId===task.id
           ? <EditableRow key={task.id} value={editingLabel} onChange={setEditingLabel} onSave={saveEdit} onCancel={()=>setEditingId(null)}/>
-          : <CheckItem key={task.id} checked={!!todayData.tasks[task.id]} label={task.label} onToggle={()=>!editMode&&toggle(task.id)} accent="#a78bfa"
+          : <CheckItem key={task.id} checked={!!viewData.tasks[task.id]} label={task.label} onToggle={()=>!editMode&&toggle(task.id)} accent="#a78bfa"
               onEdit={editMode?()=>{ setEditingId(task.id); setEditingLabel(task.label); }:null}
               onDelete={editMode?()=>delTask(task.id):null}/>
         )}
@@ -213,8 +262,8 @@ function DailyTab({ data, update }) {
         )}
       </Card>
       <Card>
-        <CardTitle>今日のメモ・気づき</CardTitle>
-        <textarea value={todayData.memo} onChange={e=>update({ ...data, daily:{ ...data.daily, [today]:{ ...todayData, memo:e.target.value } } })} placeholder="Xに投稿したこと、記事のアイデア、気づきなど..." style={{ ...S.textarea, minHeight:100 }}/>
+        <CardTitle>{isToday?"今日":"この日"}のメモ・気づき</CardTitle>
+        <textarea value={viewData.memo||""} onChange={e=>update({ ...data, daily:{ ...data.daily, [viewDate]:{ ...viewData, memo:e.target.value } } })} placeholder="Xに投稿したこと、記事のアイデア、気づきなど..." style={{ ...S.textarea, minHeight:100 }}/>
       </Card>
       <Card>
         <CardTitle>直近7日のチェック状況</CardTitle>
