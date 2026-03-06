@@ -52,10 +52,14 @@ function saveData(data) {
 }
 
 // ========== ユーティリティ ==========
-function getTodayKey() { return new Date().toISOString().split("T")[0]; }
+function toLocalDateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function getTodayKey() { return toLocalDateKey(new Date()); }
 function getWeekKey() {
   const d = new Date(), day = d.getDay(), diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  return new Date(new Date().setDate(diff)).toISOString().split("T")[0];
+  const mon = new Date(d); mon.setDate(diff);
+  return toLocalDateKey(mon);
 }
 function getMonthKey() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; }
 function formatCurrency(v) { return v ? "¥" + Number(v).toLocaleString() : "¥0"; }
@@ -182,24 +186,22 @@ function DailyTab({ data, update }) {
   const [editingId, setEditingId] = useState(null);
   const [editingLabel, setEditingLabel] = useState("");
 
-  // 日付ナビゲーション
+  // 日付ナビゲーション（未来も移動可能）
   const moveDay = (delta) => {
-    const d = new Date(viewDate); d.setDate(d.getDate() + delta);
-    const newKey = d.toISOString().split("T")[0];
-    if (newKey <= todayKey) setViewDate(newKey);
+    const d = new Date(viewDate + "T00:00:00"); d.setDate(d.getDate() + delta);
+    setViewDate(toLocalDateKey(d));
   };
+
+  const isFuture = viewDate > todayKey;
 
   // 前日の未完了タスクを今日に持ち越す
   const carryOver = () => {
-    const yesterday = new Date(todayKey); yesterday.setDate(yesterday.getDate()-1);
-    const yKey = yesterday.toISOString().split("T")[0];
+    const yesterday = new Date(todayKey + "T00:00:00"); yesterday.setDate(yesterday.getDate()-1);
+    const yKey = toLocalDateKey(yesterday);
     const yData = data.daily[yKey]||{ tasks:{} };
     const incomplete = tasks.filter(t => !yData.tasks[t.id]);
     if (incomplete.length === 0) return;
-    const todayData = data.daily[todayKey]||{ tasks:{}, memo:"" };
-    // 今日のタスクにすでにチェックされていないものだけセット（既存のチェック状態は保持）
-    update({ ...data, daily:{ ...data.daily, [todayKey]:{ ...todayData } } });
-    alert(`昨日の未完了: ${incomplete.map(t=>t.label).join("、")}\n（今日のリストで確認できます）`);
+    alert(`昨日の未完了:\n${incomplete.map(t=>"・"+t.label).join("\n")}\n\n今日のリストで確認・チェックできます`);
   };
 
   const toggle = id => update({ ...data, daily:{ ...data.daily, [viewDate]:{ ...viewData, tasks:{ ...viewData.tasks, [id]:!viewData.tasks[id] } } } });
@@ -210,11 +212,11 @@ function DailyTab({ data, update }) {
   const done = tasks.filter(t=>viewData.tasks[t.id]).length;
   const vd = new Date(viewDate + "T00:00:00");
   const days = [];
-  for(let i=6;i>=0;i--){ const dd=new Date(); dd.setDate(dd.getDate()-i); const k=dd.toISOString().split("T")[0]; const cnt=(data.daily[k]?.tasks)?tasks.filter(t=>data.daily[k].tasks[t.id]).length:0; days.push({ key:k, cnt, label:"日月火水木金土"[dd.getDay()] }); }
+  for(let i=6;i>=0;i--){ const dd=new Date(); dd.setDate(dd.getDate()-i); const k=toLocalDateKey(dd); const cnt=(data.daily[k]?.tasks)?tasks.filter(t=>data.daily[k].tasks[t.id]).length:0; days.push({ key:k, cnt, label:"日月火水木金土"[dd.getDay()] }); }
 
   // 昨日の未完了タスク数を計算
-  const yesterday = new Date(todayKey); yesterday.setDate(yesterday.getDate()-1);
-  const yKey = yesterday.toISOString().split("T")[0];
+  const yesterday = new Date(todayKey + "T00:00:00"); yesterday.setDate(yesterday.getDate()-1);
+  const yKey = toLocalDateKey(yesterday);
   const yData = data.daily[yKey]||{ tasks:{} };
   const incompleteCount = tasks.filter(t => !yData.tasks[t.id]).length;
 
@@ -227,10 +229,11 @@ function DailyTab({ data, update }) {
           <div style={{ fontSize:13, color: isToday?"#a78bfa":"#c8c8e0", fontWeight: isToday?700:400 }}>
             {vd.getFullYear()}年{vd.getMonth()+1}月{vd.getDate()}日（{"日月火水木金土"[vd.getDay()]}）
           </div>
-          {!isToday && <div style={{ fontSize:10, color:"#f87171", marginTop:2 }}>過去の記録</div>}
+          {!isToday && !isFuture && <div style={{ fontSize:10, color:"#f87171", marginTop:2 }}>過去の記録</div>}
           {isToday && <div style={{ fontSize:10, color:"#a78bfa", marginTop:2 }}>今日</div>}
+          {isFuture && <div style={{ fontSize:10, color:"#4ade80", marginTop:2 }}>予定</div>}
         </div>
-        <button onClick={()=>moveDay(1)} disabled={isToday} style={{ ...btn(isToday?"#3a3a5a":"#8080b0"), padding:"4px 12px", fontSize:16, opacity:isToday?0.3:1 }}>›</button>
+        <button onClick={()=>moveDay(1)} style={{ ...btn("#8080b0"), padding:"4px 12px", fontSize:16 }}>›</button>
       </div>
 
       {/* 昨日の未完了を持ち越すボタン（今日表示かつ昨日に未完了がある場合） */}
@@ -243,7 +246,7 @@ function DailyTab({ data, update }) {
 
       <Card>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-          <CardTitle style={{ margin:0 }}>{isToday?"今日":"この日"}のチェック</CardTitle>
+          <CardTitle style={{ margin:0 }}>{isToday?"今日":isFuture?"予定":"過去"}のチェック</CardTitle>
           <button onClick={()=>setEditMode(!editMode)} style={btn(editMode?"#fbbf24":"#a78bfa")}>{editMode?"完了":"編集"}</button>
         </div>
         <ProgressBar value={done} max={tasks.length||1} color="#a78bfa"/>
@@ -262,7 +265,7 @@ function DailyTab({ data, update }) {
         )}
       </Card>
       <Card>
-        <CardTitle>{isToday?"今日":"この日"}のメモ・気づき</CardTitle>
+        <CardTitle>{isToday?"今日":isFuture?"予定メモ":"過去のメモ・気づき"}</CardTitle>
         <textarea value={viewData.memo||""} onChange={e=>update({ ...data, daily:{ ...data.daily, [viewDate]:{ ...viewData, memo:e.target.value } } })} placeholder="Xに投稿したこと、記事のアイデア、気づきなど..." style={{ ...S.textarea, minHeight:100 }}/>
       </Card>
       <Card>
